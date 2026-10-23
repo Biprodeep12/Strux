@@ -1,0 +1,2 @@
+# optional: on-device OCR (CPU). Enables sensors.screenshot.ocr: true
+rapidocr-onnxruntime>=1.3

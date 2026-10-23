@@ -1,0 +1,174 @@
+log_level: INFO
+priority:
+  below_normal: true
+  eco_qos: true
+sensors:
+  window:
+    enabled: true
+  browser:
+    enabled: true
+  process:
+    enabled: true
+    poll_seconds: 8
+    min_lifetime_seconds: 5
+    hot_cpu_percent: 25
+    hot_polls: 3
+    job_min_seconds: 20
+    top_every_seconds: 30
+    ignore: []
+  idle:
+    enabled: true
+    poll_seconds: 5
+    idle_after_seconds: 120
+  clipboard:
+    enabled: true
+    poll_seconds: 2
+    preview_chars: 200
+  screenshot:
+    enabled: true
+    interval_seconds: 15
+    on_window_change: true
+    min_gap_seconds: 3
+    video_interval_seconds: 90
+    phash_min_distance: 6
+    max_width: 1280
+    hot_quality: 50
+    ocr: true
+    ocr_min_gap_seconds: 20
+    ocr_max_width: 1280
+    blocklist_apps:
+    - 1password.exe
+    - bitwarden.exe
+    - keepassxc.exe
+    - zoom.exe
+    - ms-teams.exe
+    blocklist_title_keywords:
+    - incognito
+    - inprivate
+    - bank
+    - password
+    - otp
+    - payment
+    - private
+    - tor
+retention:
+  hot_hours: 24
+  warm_days: 7
+  cold_days: 90
+  warm_below_score: 30
+  drop_below_score: 15
+  disk_cap_mb: 2048
+  run_every_minutes: 60
+server:
+  enabled: true
+  host: 127.0.0.1
+  port: 8765
+stt:
+  enabled: true
+  device: auto
+  model: small
+  gpu_model: large-v3-turbo
+  language: en
+  beam_size: 5
+  max_seconds: 120
+  unload_minutes: 5
+  read_aloud: voice
+  wake:
+    enabled: true
+    sound: true
+    silence_ms: 1200
+    listen_timeout_s: 6
+    max_command_s: 30
+    debug_minutes: 30
+user:
+  name: ''
+prompts: {}
+brain:
+  never_suggest_apps: []
+  tick_seconds: 30
+  info_expire_minutes: 15
+  max_cpu_percent: 60
+  global_cooldown_minutes: 6
+  snooze_minutes: 30
+  quiet_when_idle: true
+  llm:
+    enabled: true
+    provider: ollama
+    base_url: http://localhost:11434
+    model: qwen2.5:7b-instruct-q4_K_M
+    vision_model: qwen2.5vl:3b
+    interval_minutes: 5
+    num_ctx: 4096
+    timeout_seconds: 180
+    keep_alive: 0
+    chat_keep_alive: 3m
+    max_gpu_util_percent: 30
+    min_free_vram_mb: 4800
+  rules:
+    app_switch_storm:
+      enabled: true
+      window_minutes: 5
+      min_switches: 25
+      cooldown_minutes: 30
+    long_focus:
+      enabled: true
+      minutes: 50
+      cooldown_minutes: 60
+    error_on_screen:
+      enabled: true
+      cooldown_minutes: 15
+    clipboard_repeat:
+      enabled: true
+      window_minutes: 3
+      min_copies: 8
+      cooldown_minutes: 30
+    welcome_back:
+      enabled: true
+      min_idle_minutes: 10
+      cooldown_minutes: 5
+    job_done:
+      enabled: true
+      cooldown_minutes: 2
+      min_minutes: 3
+    todo_due:
+      enabled: true
+      lead_minutes: 30
+      cooldown_minutes: 2
+    event_soon:
+      enabled: true
+      lead_minutes: 15
+      cooldown_minutes: 2
+    morning_plan:
+      enabled: true
+      from_hour: 5
+      until_hour: 13
+      cooldown_minutes: 60
+    wrap_up:
+      enabled: true
+      hour: 21
+      cooldown_minutes: 60
+    busy_process:
+      enabled: true
+      minutes: 30
+      min_cpu: 10
+      cooldown_minutes: 60
+    revisit_page:
+      enabled: true
+      min_visits: 4
+      cooldown_minutes: 45
+    distraction:
+      enabled: true
+      window_minutes: 45
+      minutes: 25
+      cooldown_minutes: 60
+ui:
+  toasts: true
+  tray: true
+  window: true
+  start_hidden: true
+  overlay:
+    enabled: true
+    always_visible: true
+    timeout_seconds: 14
+screen:
+  vision: true

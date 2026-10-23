@@ -1,0 +1,14 @@
+mss>=9.0
+pillow>=10.0
+pystray>=0.19
+winotify>=1.1
+nvidia-ml-py>=12.0
+pyyaml>=6.0
+psutil>=5.9
+starlette>=0.40
+uvicorn[standard]>=0.30
+pywebview>=5.0
+uiautomation>=2.0
+pypdf>=5.0
+faster-whisper>=1.1      # speech to text (CPU, int8)
+sounddevice>=0.5
