@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import { Brain, Camera, FloppyDisk, Gauge, Microphone, ShieldCheck, SlidersHorizontal } from "@phosphor-icons/react";
+import { Brain, Camera, FloppyDisk, Gauge, Microphone, ShieldCheck, SlidersHorizontal, SpeakerHigh, SpeakerSlash } from "@phosphor-icons/react";
 import { useToast } from "../App";
 import { api, type ReadAloud, type VoiceSettings } from "../lib/api";
-import { PageHeader, SectionTitle } from "../components/Bits";
+import { PageHeader, SectionTitle, Segmented } from "../components/Bits";
+import { setTtsPrefs, speak, stopSpeaking, ttsAvailable, useLocalVoices } from "../components/Voice";
 import PromptsEditor from "../components/PromptsEditor";
 import DangerZone from "../components/DangerZone";
 import OllamaButton from "../components/OllamaButton";
@@ -77,7 +78,46 @@ function VoiceSettingsCard() {
           <option value="always">Every reply</option>
         </select>
       </Field>
+      <VoicePicker v={v} update={update} />
     </section>
+  );
+}
+
+const SPEEDS = [{ v: 0.85, label: "Slow" }, { v: 1.05, label: "Normal" }, { v: 1.2, label: "Fast" }, { v: 1.4, label: "Faster" }];
+const SAMPLE = "Hi, I'm Strux. You have two TODOs due today, and your next meeting starts at four.";
+
+/** Which Windows voice reads replies, and how fast. Only voices installed on this PC are listed. */
+function VoicePicker({ v, update }: { v: VoiceSettings; update: (b: Parameters<typeof api.setVoice>[0]) => void }) {
+  const voices = useLocalVoices();
+  const [playing, setPlaying] = useState(false);
+  useEffect(() => { setTtsPrefs(v); }, [v]);
+  const preview = (p: { tts_voice?: string; tts_rate?: number } = {}) => {
+    setTtsPrefs({ tts_voice: v.tts_voice, tts_rate: v.tts_rate, ...p });
+    if (speak(SAMPLE, "voice-preview", () => setPlaying(false))) setPlaying(true);
+  };
+  const choose = (p: { tts_voice?: string; tts_rate?: number }) => { update(p); preview(p); };
+  const label = (x: SpeechSynthesisVoice) => `${x.name.replace(/^Microsoft\s+/, "").replace(/\s*-\s*.*$/, "").replace(/\s+Online.*$/, "")} · ${x.lang}`;
+  if (!ttsAvailable()) return null;
+  return (
+    <>
+      <Field label="Voice" hint={voices.length ? `${voices.length} voice${voices.length === 1 ? "" : "s"} on this PC. More: Windows Settings → Time & language → Speech → Add voices.` : "Loading the voices on this PC…"}>
+        <div className="flex gap-2">
+          <select data-testid="tts-voice" className="input" value={v.tts_voice} onChange={(e) => choose({ tts_voice: e.target.value })}>
+            <option value="">Automatic (best English voice)</option>
+            {v.tts_voice && !voices.some((x) => x.name === v.tts_voice) && <option value={v.tts_voice}>{v.tts_voice} (not installed)</option>}
+            {voices.map((x) => <option key={x.voiceURI} value={x.name}>{label(x)}</option>)}
+          </select>
+          <button type="button" data-testid="tts-preview" className="btn px-3 shrink-0" onClick={() => (playing ? (stopSpeaking(), setPlaying(false)) : preview())}
+            title={playing ? "Stop" : "Hear this voice"}>
+            {playing ? <SpeakerSlash className="size-4" weight="duotone" /> : <SpeakerHigh className="size-4" weight="duotone" />}{playing ? "Stop" : "Try"}
+          </button>
+        </div>
+      </Field>
+      <Field label="Speed">
+        <Segmented value={String(SPEEDS.reduce((a, b) => (Math.abs(b.v - v.tts_rate) < Math.abs(a.v - v.tts_rate) ? b : a)).v)}
+          onChange={(s) => choose({ tts_rate: Number(s) })} options={SPEEDS.map((s) => ({ value: String(s.v), label: s.label }))} />
+      </Field>
+    </>
   );
 }
 

@@ -123,15 +123,30 @@ class ScreenRouteTests(unittest.TestCase):
              mock.patch.object(screen, "read", return_value=("Team G - Lead\nmanual_not_detected", "A spreadsheet.", [])):
             text = chat.answer(llm, store, [{"role": "user", "content": "What is on my screen?"}], used=used, screen_ctx=ctx)
         self.assertIn("Excel", text)
-        system = llm.sent[-1][0]["content"]
-        self.assertIn("Team G - Lead", system)                           # OCR text reached the model
-        self.assertIn("events.xlsx", system)
+        ask = llm.sent[-1][-1]["content"]                                # SCREEN rides in the question's turn (no echo)
+        self.assertIn("Team G - Lead", ask)                              # OCR text reached the model
+        self.assertIn("events.xlsx", ask)
+        self.assertIn("What is on my screen?", ask)
         self.assertTrue(used["screen"]["thumb"])
         store.search.assert_not_called()                                 # not answered from the work log
         # a follow-up reuses the same look (no new capture)
         with mock.patch.object(screen, "capture", side_effect=AssertionError("captured again")):
             chat.answer(llm, store, [{"role": "user", "content": "What is on my screen?"}, {"role": "assistant", "content": text},
                                      {"role": "user", "content": "which columns does it have?"}], used={}, screen_ctx=ctx)
+        screen.forget()
+
+    def test_screen_echo_and_loops(self):
+        self.assertEqual(screen.unloop("GitHub GitHub GitHub GitHub\nA dashboard.\na dashboard.\nGitHub GitHub GitHub"),
+                         "GitHub\nA dashboard.")
+        self.assertIn("Windows desktop", screen.context({"app": "explorer.exe", "title": "Program Manager"}, "", ""))
+        llm = FakeLLM(text="Window in front: Brave — “GitHub”\n\nYou're on your GitHub dashboard.")
+        hist = [{"role": "user", "content": "what's on my screen"}, {"role": "assistant", "content": "Window in front: Explorer\n\n46"},
+                {"role": "user", "content": "What's on my screen?"}]
+        with mock.patch.object(screen, "capture", return_value=__import__("PIL.Image", fromlist=["Image"]).new("RGB", (64, 40))), \
+             mock.patch.object(screen, "read", return_value=("Dashboard", "", [])):
+            text = screen.answer(llm, "What's on my screen?", hist, {"app": "brave.exe", "title": "GitHub"}, {}, "v", learn_screens=False, force=True)
+        self.assertEqual(text, "You're on your GitHub dashboard.")       # a copied heading is cut
+        self.assertNotIn("46", str(llm.sent[-1]))                        # an old echo isn't fed back in
         screen.forget()
 
     def test_blocklisted_window_is_never_captured(self):

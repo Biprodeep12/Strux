@@ -61,6 +61,14 @@ def resample(x: np.ndarray, src: int, dst: int = RATE) -> np.ndarray:
     return np.interp(np.linspace(0, len(x) - 1, n), np.arange(len(x)), x).astype(np.float32)
 
 
+def prompt_echo(text: str, hints: str) -> bool:
+    """Whisper on unclear audio sometimes just repeats its prompt ("Biprodeep, Strux, Claude Code, Strux, Claude Code"):
+    True when (nearly) every word of the text is a hint word."""
+    norm = lambda t: [w for w in (x.strip(" ,.!?;:'\"").lower() for x in (t or "").split()) if w]
+    words, vocab = norm(text), set(norm(hints))
+    return len(words) >= 3 and bool(vocab) and sum(w in vocab for w in words) / len(words) >= 0.8
+
+
 class SpeechToText:
     def __init__(self, cfg: dict, data_dir: str | Path, hints: Callable[[], str] = lambda: "") -> None:
         self.cfg = cfg
@@ -203,13 +211,14 @@ class SpeechToText:
             return {"text": "", "seconds": round(seconds, 1), "latency": 0.0, "note": "nothing heard"}
         return self.transcribe(audio)
 
-    def transcribe(self, audio: np.ndarray) -> dict:
+    def transcribe(self, audio: np.ndarray, hints: bool = True) -> dict:
+        """`hints=False`: no spelling prompt, so the text is only what was really said (the "Hey Strux" double-check)."""
         t0 = time.time()
         lang = self.cfg.get("language") or None          # "en" by default; "" / null = detect
         try:
             model = self._load()
             segs, info = model.transcribe(audio, language=lang, beam_size=int(self.cfg.get("beam_size", 5)), vad_filter=True,
-                                          initial_prompt=(self.hints() or None), condition_on_previous_text=False)
+                                          initial_prompt=(self.hints() or None) if hints else None, condition_on_previous_text=False)
             text = " ".join(s.text.strip() for s in segs).strip()      # segments are lazy: CUDA errors surface here
         except RuntimeError as e:
             if self.device != "cuda":
@@ -217,7 +226,10 @@ class SpeechToText:
             log.warning("speech failed on the GPU, retrying on the CPU: %s", e)
             with self._lock:
                 self._model, self._cuda_failed = None, True
-            return self.transcribe(audio)
+            return self.transcribe(audio, hints)
+        if hints and prompt_echo(text, self.hints()):
+            log.info("speech: dropped a transcript that only repeats the spelling hints")
+            text = ""
         self._last_used = time.time()
         self._schedule_unload()
         out = {"text": text, "seconds": round(len(audio) / RATE, 1), "latency": round(time.time() - t0, 2),

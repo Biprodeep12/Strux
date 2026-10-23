@@ -78,17 +78,52 @@ def blocked(shot_cfg: dict, app: str, title: str) -> bool:
     return any(k.lower() in t for k in shot_cfg.get("blocklist_title_keywords", []))
 
 
+class _MonitorInfo(ctypes.Structure):
+    _fields_ = [("cbSize", w.DWORD), ("rcMonitor", w.RECT), ("rcWork", w.RECT), ("dwFlags", w.DWORD)]
+
+
+def _work_area(mon: dict) -> dict:
+    """The monitor minus the taskbar: its clock, weather and tray icons were OCR'd as if they were on screen
+    (2026-10-24: "46 / MoVR4646 / ENG / 01:06" came back as the answer). Same coordinates as mss (physical px)."""
+    try:
+        _u32.MonitorFromPoint.restype = w.HANDLE
+        _u32.MonitorFromPoint.argtypes = [w.POINT, w.DWORD]
+        hmon = _u32.MonitorFromPoint(w.POINT(mon["left"] + mon["width"] // 2, mon["top"] + mon["height"] // 2), 2)
+        mi = _MonitorInfo(cbSize=ctypes.sizeof(_MonitorInfo))
+        if not hmon or not _u32.GetMonitorInfoW(hmon, ctypes.byref(mi)):
+            return mon
+        r = mi.rcWork
+        work = {"left": max(r.left, mon["left"]), "top": max(r.top, mon["top"])}
+        work["width"] = min(r.right, mon["left"] + mon["width"]) - work["left"]
+        work["height"] = min(r.bottom, mon["top"] + mon["height"]) - work["top"]
+        return work if work["width"] > mon["width"] // 2 and work["height"] > mon["height"] // 2 else mon
+    except Exception:
+        return mon
+
+
 def capture(hwnd: int = 0):
-    """PIL image of the monitor in use, minus Strux's own windows."""
+    """PIL image of the monitor in use (without the taskbar), minus Strux's own windows."""
     import mss
     from PIL import Image
     from ..sensors.screenshot import _mask_own_windows
     with mss.mss() as sct:
-        mon = _pick_monitor(sct.monitors, _window_rect(hwnd))
+        mon = _work_area(_pick_monitor(sct.monitors, _window_rect(hwnd)))
         raw = sct.grab(mon)
         img = Image.frombytes("RGB", raw.size, raw.bgra, "raw", "BGRX")
     _mask_own_windows(img, mon["left"], mon["top"])
     return img
+
+
+def unloop(text: str, limit: int = 1500) -> str:
+    """The vision model at temperature 0 sometimes loops ("GitHub GitHub GitHub …" x100): keep each line once and
+    collapse a word repeated back to back."""
+    seen, lines = set(), []
+    for ln in (text or "").splitlines():
+        ln = re.sub(r"\b(\S+)(?:\s+\1\b){2,}", r"\1", ln).strip()
+        if ln and ln.lower() not in seen:
+            seen.add(ln.lower())
+            lines.append(ln)
+    return "\n".join(lines)[:limit]
 
 
 def _b64(img, side: int, quality: int = 80) -> str:
@@ -118,9 +153,10 @@ def read(llm, img, vision_model: str, use_vision: bool = False, side: int = 448)
             return
         # same safety limits as image attachments (vision.py): small image, short answer, small batches, unload after
         text = llm.chat([{"role": "user", "content": prompts.get("screen_vision")}], max_tokens=320, temperature=0.0,
-                        model=vision_model, images=[_b64(img, side, 85)], keep_alive=0, options={"num_ctx": 4096, "num_batch": 64})
+                        model=vision_model, images=[_b64(img, side, 85)], keep_alive=0,
+                        options={"num_ctx": 4096, "num_batch": 64, "repeat_penalty": 1.15})
         if text:
-            out["vision"] = text.strip()
+            out["vision"] = unloop(text)
         else:
             problems.append("the image model didn't answer" + (f" ({llm.last_error[:80]})" if llm.last_error else ""))
 
@@ -147,7 +183,10 @@ def _tidy_ocr(text: str, limit: int = 3500) -> str:
 
 def context(target: dict, ocr_text: str, vision_text: str) -> str:
     from ..overlay import app_label
-    parts = [f"Window in front: {app_label(target.get('app') or '') or '?'} — “{(target.get('title') or '').strip()[:160]}”"]
+    if (target.get("app") or "").lower() == "explorer.exe" and (target.get("title") or "").strip() in ("Program Manager", ""):
+        parts = ["Window in front: none (the Windows desktop)"]
+    else:
+        parts = [f"Window in front: {app_label(target.get('app') or '') or '?'} — “{(target.get('title') or '').strip()[:160]}”"]
     if target.get("url"):
         parts.append(f"Page URL: {target['url'][:200]}")
     if vision_text:
@@ -195,15 +234,24 @@ def answer(llm, question: str, history: list[dict], target: dict, shot_cfg: dict
                              {"app": app, "url": target.get("url", "")})
     info["app"], info["title"] = app, title
     system = prompts.get("screen", who=who(name))
-    convo = [{"role": "system", "content": prompts.with_memory(system) + "\n\nSCREEN (captured just now):\n" + ctx}] \
-        + [{"role": m["role"], "content": m["content"]} for m in history[-6:]]
+    # SCREEN goes in the question's own turn: in the system prompt, qwen2.5 7B answered "what's on my screen" by
+    # copying it out ("Window in front: … 46 …"), and that copy in the history was copied again on the next look
+    past = [{"role": m["role"], "content": m["content"]} for m in history[:-1][-6:] if not _echo(m.get("content") or "")]
+    ask = f"SCREEN (captured just now):\n{ctx}\n\n---\nMy question: {question}\n" \
+          "Answer it in your own words (at most 6 short lines). Do not copy the SCREEN text out."
+    convo = [{"role": "system", "content": prompts.with_memory(system)}] + past + [{"role": "user", "content": ask}]
     text = llm.chat(convo, max_tokens=380, temperature=0.1)
     if text:
-        text = tidy(text)
+        text = tidy(re.sub(r"^\s*Window in front:[^\n]*\n+", "", text))
         with _lock:
             _last.clear()
             _last.update({"ts": last["ts"] if reuse else time.time(), "ctx": ctx, "answer": text})
     return text
+
+
+def _echo(text: str) -> bool:
+    """An old answer that only copied SCREEN out."""
+    return text.lstrip().startswith("Window in front:")
 
 
 def forget() -> None:

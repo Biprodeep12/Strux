@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { ArrowLeft, ArrowUp, ChatCircleDots, Check, ClockCountdown, ClockCounterClockwise, Cpu, Eye, Info, ListBullets, NotePencil, Robot, Sparkle,
+import { ArrowLeft, ArrowUp, ChatCircleDots, Check, ClockCountdown, ClockCounterClockwise, Cpu, Eye, Info, ListBullets, ListChecks, NotePencil, Robot, Sparkle,
   ThumbsDown, ThumbsUp, Trash, Warning, X } from "@phosphor-icons/react";
 import { useLiveCtx } from "../App";
 import { api } from "../lib/api";
 import { actionLabel, ago, appLabel } from "../lib/format";
-import type { Change, ChatSummary, ScreenLook, StoredMessage } from "../lib/api";
+import type { Change, ChatSummary, ScreenLook, StoredMessage, Todo } from "../lib/api";
+import { QuickAdd, TodoRow, addDays, useTodos } from "../components/Planner";
 import ChangeChips from "../components/ChangeChips";
 import ModelTag from "../components/ModelTag";
 import OllamaButton from "../components/OllamaButton";
@@ -19,7 +20,8 @@ type Chat = { role: "user" | "assistant"; content: string; attachments?: Attachm
   id?: number | null; rating?: number; screen?: ScreenLook | null };
 type ActionMsg = { id: number; thread: string; content: string; pending?: boolean; error?: boolean; ts: number; model?: string | null };
 type ClaudeSession = { id: string; project: string; status: string; last: string; waiting: boolean; updated: number };
-type Tab = "chat" | "panel";
+type Tab = "chat" | "panel" | "todos";
+const TABS: Tab[] = ["chat", "panel", "todos"];
 
 const post = (p: string, body: any = {}) => fetch(p, { method: "POST", body: JSON.stringify(body) }).catch(() => {});
 const maxHeight = () => Math.round(Math.min(560, (window.screen?.availHeight || 900) * 0.7));
@@ -63,6 +65,8 @@ export default function Pane() {
   const [history, setHistory] = useState<ChatSummary[] | null>(null);
   const [chips, setChips] = useState<string[]>([]);
   const [front, setFront] = useState<{ app?: string; title?: string }>({});
+  const { todos } = useTodos();
+  const [editing, setEditing] = useState(false);          // a TODO's editor is open: use the full height
   const inputRef = useRef<HTMLInputElement>(null);
   const headRef = useRef<HTMLDivElement>(null);
   const formRef = useRef<HTMLFormElement>(null);
@@ -111,7 +115,7 @@ export default function Pane() {
     setSugg(s.suggestions ?? []); setAlerts((s.alerts ?? []).slice(-3)); setClaude(s.claude ?? []); setHot(s.hot ?? []);
     ingest(s.chat ?? []); ingestAttach(s.attach ?? []); ingestVoice(s.voice ?? []); if (s.user) setUser(s.user); if (s.model) setModel(s.model);
     if (Array.isArray(s.chips)) setChips(s.chips); if (s.front) setFront(s.front);
-    if (s.pane === "chat" || s.pane === "panel") setTab(s.pane);
+    if (TABS.includes(s.pane)) setTab(s.pane);
   }).catch(() => {}), [ingest, ingestAttach]);
 
   const restored = useRef(false);
@@ -185,7 +189,7 @@ export default function Pane() {
       const head = headRef.current?.offsetHeight ?? 0;
       const form = formRef.current?.offsetHeight ?? 0;
       const inner = innerRef.current?.scrollHeight ?? 0;
-      const h = Math.min(maxHeight(), Math.ceil(head + form + inner + 2));
+      const h = editing ? maxHeight() : Math.min(maxHeight(), Math.ceil(head + form + inner + 2));
       if (Math.abs(h - last) < 4) return;
       last = h;
       window.clearTimeout(t);
@@ -195,7 +199,8 @@ export default function Pane() {
     [headRef.current, formRef.current, innerRef.current].forEach((el) => el && ro.observe(el));
     report();
     return () => { ro.disconnect(); window.clearTimeout(t); };
-  }, [tab, shown, view]);
+  }, [tab, shown, view, editing]);
+  useEffect(() => { if (tab !== "todos") setEditing(false); }, [tab]);
 
   const feedback = async (s: Sugg, value: "accept" | "dismiss" | "snooze") => {
     setSugg((l) => l.filter((x) => x.id !== s.id));
@@ -242,6 +247,7 @@ export default function Pane() {
   const chipSent = useRef(false);
   const ask = (q: string) => { chipSent.current = true; send(q); };
   const count = sugg.length + alerts.length;
+  const dueNow = (todos ?? []).filter((t) => t.done_ts == null && t.due_ts != null && t.due_ts < addDays(new Date(), 1).getTime() / 1000).length;
 
   return (
     <motion.div key={shown} initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.16, ease: "easeOut" }}
@@ -252,6 +258,9 @@ export default function Pane() {
         <TabBtn active={tab === "chat"} onClick={() => setTab("chat")} icon={<ChatCircleDots className="size-4" weight={tab === "chat" ? "fill" : "regular"} />}>Chat</TabBtn>
         <TabBtn active={tab === "panel"} onClick={() => setTab("panel")} icon={<ListBullets className="size-4" weight={tab === "panel" ? "fill" : "regular"} />}>
           Activity{count > 0 && <span className="ml-1 min-w-4 h-4 px-1 rounded-full text-[10px] grid place-items-center text-white" style={{ background: "var(--accent)" }}>{count}</span>}
+        </TabBtn>
+        <TabBtn active={tab === "todos"} onClick={() => setTab("todos")} icon={<ListChecks className="size-4" weight={tab === "todos" ? "fill" : "regular"} />}>
+          TODOs{dueNow > 0 && <span title="Due today or overdue" className="ml-1 min-w-4 h-4 px-1 rounded-full text-[10px] grid place-items-center text-white" style={{ background: "var(--accent)" }}>{dueNow}</span>}
         </TabBtn>
         <span className="flex-1 min-w-2" />
         <ModelTag model={model} className="mr-1.5 hidden min-[420px]:inline-flex" />
@@ -319,6 +328,8 @@ export default function Pane() {
                   <motion.span key={hint} initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-[11px] text-ink-3">{hint}</motion.span></div>}
                 </>}
               </>
+            ) : tab === "todos" ? (
+              <PaneTodos todos={todos} onModal={setEditing} />
             ) : (
               <>
                 {alerts.map((a) => (
@@ -365,6 +376,33 @@ export default function Pane() {
         </AnimatePresence>
       </div>
     </motion.div>
+  );
+}
+
+/** Open TODOs, soonest first: Overdue / Today / Later / No date, with quick add on top. Click one to edit it. */
+function PaneTodos({ todos, onModal }: { todos: Todo[] | null; onModal: (open: boolean) => void }) {
+  const now = Date.now() / 1000, tomorrow = addDays(new Date(), 1).getTime() / 1000;
+  const open = (todos ?? []).filter((t) => t.done_ts == null);
+  const groups = ([
+    ["Overdue", open.filter((t) => t.due_ts != null && t.due_ts < now)],
+    ["Today", open.filter((t) => t.due_ts != null && t.due_ts >= now && t.due_ts < tomorrow)],
+    ["Later", open.filter((t) => t.due_ts != null && t.due_ts >= tomorrow)],
+    ["No date", open.filter((t) => t.due_ts == null)],
+  ] as [string, Todo[]][]).filter(([, l]) => l.length);
+  return (
+    <div className="space-y-2 pt-1" data-testid="pane-todos">
+      <QuickAdd compact autoFocus placeholder="Add a TODO… e.g. “call the bank tomorrow 5pm !high”" />
+      {todos == null ? <div className="space-y-1.5">{[0, 1, 2].map((i) => <div key={i} className="skeleton h-8" />)}</div>
+        : open.length === 0 ? <div className="text-xs text-ink-3 text-center py-6">Nothing open. Add one above, or ask the chat.</div>
+        : groups.map(([name, list]) => (
+          <div key={name}>
+            <div className={`flex items-center gap-1.5 px-0.5 pt-1 text-[10.5px] uppercase tracking-wide ${name === "Overdue" ? "text-critical" : name === "Today" ? "text-accent" : "text-ink-3"}`}>
+              {name}<span className="text-ink-3">{list.length}</span>
+            </div>
+            <div className="-mx-1.5">{list.map((t) => <TodoRow key={t.id} t={t} compact onModal={onModal} />)}</div>
+          </div>
+        ))}
+    </div>
   );
 }
 

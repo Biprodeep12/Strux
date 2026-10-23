@@ -90,12 +90,35 @@ export function MicButton({ onText, disabled, onError, small }: {
 // ---- text to speech ------------------------------------------------------------------------------
 const synth = typeof window !== "undefined" ? window.speechSynthesis : undefined;
 
-/** The nicest voice that runs on this PC (never an online one: the text would leave the machine). */
-function pickVoice(): SpeechSynthesisVoice | undefined {
-  const voices = (synth?.getVoices() ?? []).filter((v) => v.localService && v.lang.toLowerCase().startsWith("en"));
-  const rank = (v: SpeechSynthesisVoice) =>
+/** Your choice from Settings -> Voice (config.yaml stt.tts_voice / tts_rate); '' = the best one on this PC. */
+const prefs = { voice: "", rate: 1.05 };
+export const setTtsPrefs = (p: { tts_voice?: string; tts_rate?: number }) => {
+  if (typeof p.tts_voice === "string") prefs.voice = p.tts_voice;
+  if (typeof p.tts_rate === "number" && p.tts_rate > 0) prefs.rate = p.tts_rate;
+};
+
+/** The voices that run on this PC, best first (never an online one: the text would leave the machine). */
+export function localVoices(): SpeechSynthesisVoice[] {
+  const rank = (v: SpeechSynthesisVoice) => (v.lang.toLowerCase().startsWith("en") ? 0 : 100) +
     (/natural/i.test(v.name) ? 0 : 10) + (/en-IN/i.test(v.lang) ? 0 : /en-(GB|US)/i.test(v.lang) ? 1 : 2) + (/(aria|jenny|neerja|zira)/i.test(v.name) ? 0 : 1);
-  return voices.sort((a, b) => rank(a) - rank(b))[0];
+  return (synth?.getVoices() ?? []).filter((v) => v.localService).sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name));
+}
+
+/** Voices load asynchronously the first time; resolves once they are there (or after a moment). */
+export function useLocalVoices(): SpeechSynthesisVoice[] {
+  const [list, setList] = useState<SpeechSynthesisVoice[]>(localVoices);
+  useEffect(() => {
+    const upd = () => setList(localVoices());
+    synth?.addEventListener("voiceschanged", upd);
+    const t = setTimeout(upd, 400);
+    return () => { synth?.removeEventListener("voiceschanged", upd); clearTimeout(t); };
+  }, []);
+  return list;
+}
+
+function pickVoice(): SpeechSynthesisVoice | undefined {
+  const all = localVoices();
+  return (prefs.voice && all.find((v) => v.name === prefs.voice)) || all.find((v) => v.lang.toLowerCase().startsWith("en")) || all[0];
 }
 
 /** What a person would read out: no markdown marks, no code blocks, no ids, links shortened. */
@@ -130,7 +153,7 @@ export function speak(text: string, id = "x", onEnd?: () => void): boolean {
   const u = new SpeechSynthesisUtterance(speakable(text));
   const v = pickVoice();
   if (v) { u.voice = v; u.lang = v.lang; }
-  u.rate = 1.05;
+  u.rate = prefs.rate;
   speaking(u.text.split(/\s+/).length / 2.6 + 1);
   const done = () => { if (current?.id === id) { current = null; speaking(0); } onEnd?.(); };
   u.onend = done; u.onerror = done;
@@ -147,7 +170,7 @@ const READ_LABEL: Record<ReadAloud, string> = { off: "Off", voice: "When I speak
 export function useReadAloud(): [ReadAloud, (m: ReadAloud) => void] {
   const [mode, setMode] = useState<ReadAloud>("off");
   useEffect(() => {
-    const load = () => api.voice().then((v) => setMode(v.read_aloud)).catch(() => {});
+    const load = () => api.voice().then((v) => { setMode(v.read_aloud); setTtsPrefs(v); }).catch(() => {});
     load();
     addEventListener("focus", load);
     return () => removeEventListener("focus", load);

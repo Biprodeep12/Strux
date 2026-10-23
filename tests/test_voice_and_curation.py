@@ -97,7 +97,8 @@ class Wake(unittest.TestCase):
         from watcher.wake import command_after, find_wake
         for said in ("Hey Strux, what's on my calendar?", "Hi Strux. Plan my day", "Okay, Strux, add a todo",
                      # how whisper tiny.en actually wrote it (SAPI voices, 2026-10-23)
-                     "Hey, Strucks! What's the time?", "high strokes, plan my day", "OK, structs. Add a todo to call mom.", "Hey, Strucks."):
+                     "Hey, Strucks! What's the time?", "high strokes, plan my day", "OK, structs. Add a todo to call mom.", "Hey, Strucks.",
+                     "Heistrux. Plan my day."):                            # large-v3-turbo, no prompt
             self.assertTrue(find_wake(said), said)
         for said in ("I said hello to them", "the strux effect in UX", "they gave a strux award", "So yesterday I was telling him hey strux",
                      "hey hello what's on my calendar", "Hey Halo, what's next", "okay, tracks three and four", "Hey, trucks are parked",
@@ -118,7 +119,10 @@ class Wake(unittest.TestCase):
         self.assertEqual(message_after("Hey, Strux. Hey, Strux, what's up?"), "what's up")      # said again while waiting
         self.assertEqual(message_after("Hey Strux. Strux, Strux."), "")
         self.assertEqual(message_after("Hey Strux, add a todo to call mom."), "add a todo to call mom")
-        self.assertEqual(message_after("Hello, what's next?"), "what's next")                 # big model's spelling
+        self.assertEqual(message_after("Hello, what's next?"), "what's next")
+        self.assertEqual(message_after("Heistrux. Plan my day."), "Plan my day")
+        self.assertEqual(message_after("Restructs, what's next?"), "what's next")
+        self.assertEqual(message_after("structure my notes"), "structure my notes")         # a lowercase real word stays                 # big model's spelling
 
     def test_audio_from_while_transcribing_is_dropped(self):
         """'Hey Strux?' said again while the model loaded used to replay afterwards as a burst of stale commands."""
@@ -127,7 +131,7 @@ class Wake(unittest.TestCase):
         blocks, lock, got = [], threading.Lock(), []
 
         class Stt:
-            def transcribe(self, audio):
+            def transcribe(self, audio, hints=True):
                 blocks.append(np.ones(RATE, np.float32) * 0.1)          # the mic keeps running meanwhile
                 return {"text": "Hey Strux, what's the time?"}
         w = WakeListener({"wake": {"sound": False}}, Stt(), on_command=got.append, on_state=lambda s: None,
@@ -138,6 +142,42 @@ class Wake(unittest.TestCase):
         self.assertEqual(got, ["what's the time"])
         self.assertEqual(blocks, [])
         self.assertEqual(w.state, "waiting")
+
+    def test_other_speech_does_not_wake(self):
+        """2026-10-23: a video's "What?! No, no, no…" came out of the primed tiny.en as "Hey Strux" and was sent as a
+        message. The unprompted chat model has to hear the wake phrase too."""
+        import threading
+        from watcher.wake import WakeListener
+        got, calls = [], []
+
+        class Stt:
+            def transcribe(self, audio, hints=True):
+                calls.append(hints)
+                return {"text": "What?! No, no, no, what?!"}
+        w = WakeListener({"wake": {"sound": False}}, Stt(), on_command=got.append, on_state=lambda s: None,
+                         suppressed=lambda: False)
+        w._tiny = types.SimpleNamespace(transcribe=lambda *a, **k: ([types.SimpleNamespace(text="Hey Strux.")], None))
+        w._record_until_silence = lambda *a, **k: self.fail("must not start listening")
+        self.assertFalse(w._burst(np.zeros(RATE, np.float32), [], threading.Lock(), RATE, vad=None))
+        self.assertEqual((got, calls, w.woken, w.state), ([], [False], 0, "off"))
+
+    def test_double_check_on_real_transcripts(self):
+        """What the unprompted chat model wrote on 2026-10-24 after the primed tiny.en said "Hey Strux."."""
+        from watcher.wake import confirms_wake
+        for you in ("Hey, Strux.", "Hey Struck! Summarize my last hour.", "Hey, Strunks.", "Restructs", "Aestrux", "A strokes.",
+                    "Very struck us.", "Rrrrstruck!", "Heistrux. Plan my day."):
+            self.assertTrue(confirms_wake(you), you)
+        for other in ("Very cool.", "Exactly.", "Thank you.", "How do you get this?", "", "What?! No, no, no, what?!",
+                      "I've been so tired to have even the least favorite", "See you in the next video.", "So yesterday the strong man"):
+            self.assertFalse(confirms_wake(other), other)
+
+    def test_prompt_echo_is_dropped(self):
+        from watcher.stt import prompt_echo
+        hints = "Biprodeep, Strux, Claude Code, TODO."
+        self.assertTrue(prompt_echo("Biprodeep, Strux, Claude Code, Strux, Claude Code, Strux, Claude Code, Strux", hints))
+        self.assertTrue(prompt_echo("Strux, Claude Code.", hints))
+        for real in ("Strux, add a TODO for Claude Code", "what's on my calendar", "Strux", "Claude Code"):
+            self.assertFalse(prompt_echo(real, hints), real)
 
     def test_api_and_settings_form_cannot_flip_it(self):
         from starlette.testclient import TestClient
@@ -158,6 +198,12 @@ class Wake(unittest.TestCase):
             self.assertEqual(c.put("/api/voice", json={"wake": "yes"}).status_code, 400)
             v = c.put("/api/voice", json={"read_aloud": "voice", "wake": True}).json()
             self.assertEqual((v["read_aloud"], v["wake"]["enabled"], started), ("voice", True, [True]))
+            # which Windows voice reads replies, and how fast ('' = automatic; speed clamped)
+            self.assertEqual((v["tts_voice"], v["tts_rate"]), ("", 1.05))
+            v = c.put("/api/voice", json={"tts_voice": " Microsoft Zira ", "tts_rate": 9}).json()
+            self.assertEqual((v["tts_voice"], v["tts_rate"]), ("Microsoft Zira", 1.6))
+            self.assertEqual(c.put("/api/voice", json={"tts_voice": 3}).status_code, 400)
+            self.assertEqual(c.put("/api/voice", json={"tts_rate": "fast"}).status_code, 400)
             # a Settings form saved with an old copy of the config must not switch the mic back
             c.put("/api/settings", json={"stt": {"wake": {"enabled": False}, "read_aloud": "off"}})
             self.assertTrue(app.cfg["stt"]["wake"]["enabled"])

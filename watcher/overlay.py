@@ -19,6 +19,7 @@ from typing import Any, Callable
 from .events import Event
 
 log = logging.getLogger(__name__)
+PANE_TABS = ("chat", "panel", "todos")          # the drop-down's tabs (bar buttons of the same names)
 
 NAMES = {
     "excel.exe": "Excel", "winword.exe": "Word", "powerpnt.exe": "PowerPoint", "outlook.exe": "Outlook", "olk.exe": "Outlook",
@@ -213,7 +214,7 @@ class Overlay:
         self.broadcast({"type": "overlay", "item": "focus-chat"})
 
     def expand(self, mode, width=None, height=None) -> None:
-        if mode in ("chat", "panel"):
+        if mode in PANE_TABS:
             self.open_pane(mode)
         elif mode in ("idle", "bar", False, None):
             self.close_pane()
@@ -280,7 +281,7 @@ class Overlay:
 
     # ---- bar actions --------------------------------------------------------------
     def _on_bar(self, key: str, arg: Any) -> None:
-        if key in ("chat", "panel"):
+        if key in PANE_TABS:
             self.toggle_pane(key)
         elif key == "headline":
             self.toggle_pane("panel")

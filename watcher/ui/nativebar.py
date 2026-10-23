@@ -185,7 +185,7 @@ class BarState:
     pending: int = 0
     waiting: str | None = None   # Claude project waiting for you
     peek: Item | None = None
-    pane: str | None = None      # "chat" | "panel" when the drop-down is open
+    pane: str | None = None      # "chat" | "panel" | "todos" when the drop-down is open
     emphasis: bool = False       # headline is a suggestion / alert
 
 
@@ -397,7 +397,7 @@ class NativeBar:
         d = ImageDraw.Draw(img)
         self._logo(img, R(10, 10, 36, 36))
         d.ellipse(R(44, HEAD_H / 2 - 3, 50, HEAD_H / 2 + 3), fill=GOOD if not st.paused else WARN)
-        icons = [("chat", "keyboard"), ("panel", "list-bullets"), ("dashboard", "squares-four"),
+        icons = [("chat", "keyboard"), ("panel", "list-bullets"), ("todos", "list-checks"), ("dashboard", "squares-four"),
                  ("pause", "play" if st.paused else "pause"), ("think", "sparkle")]
         if mode == "open":
             icons.append(("close", "x"))

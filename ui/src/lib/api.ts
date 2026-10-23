@@ -15,7 +15,7 @@ export type Status = {
 };
 export type WakeStatus = { enabled: boolean; state: string; heard: number; woken: number };
 export type ReadAloud = "off" | "voice" | "always";
-export type VoiceSettings = { read_aloud: ReadAloud; wake: WakeStatus; stt_enabled: boolean };
+export type VoiceSettings = { read_aloud: ReadAloud; wake: WakeStatus; stt_enabled: boolean; tts_voice: string; tts_rate: number };
 
 export type ScreenLook = { thumb?: string | null; app?: string | null; title?: string | null };
 export type OllamaStart = { ok: boolean; started?: boolean; restarted?: boolean; seconds?: number; note?: string; error?: string };
@@ -88,7 +88,7 @@ export const api = {
     j<{ todo: Todo }>(`/api/todos/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
   deleteTodo: (id: number) => j<{ ok: boolean }>(`/api/todos/${id}`, { method: "DELETE" }),
   voice: () => j<VoiceSettings>("/api/voice"),
-  setVoice: (body: Partial<{ read_aloud: ReadAloud; wake: boolean }>) => j<VoiceSettings>("/api/voice", { method: "PUT", body: JSON.stringify(body) }),
+  setVoice: (body: Partial<{ read_aloud: ReadAloud; wake: boolean; tts_voice: string; tts_rate: number }>) => j<VoiceSettings>("/api/voice", { method: "PUT", body: JSON.stringify(body) }),
   todoFiles: (id: number) => j<{ files: TodoFile[] }>(`/api/todos/${id}/files`),
   /** Raw bytes as the body: no base64, files up to 25 MB. */
   uploadTodoFile: (id: number, f: File) =>

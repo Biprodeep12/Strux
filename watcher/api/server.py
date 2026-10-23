@@ -325,19 +325,30 @@ def create_api(app) -> Starlette:
 
     def _voice_settings() -> dict:
         s = app.cfg.get("stt", {})
-        return {"read_aloud": s.get("read_aloud", "off"), "wake": app.wake.status(), "stt_enabled": s.get("enabled", True)}
+        return {"read_aloud": s.get("read_aloud", "off"), "wake": app.wake.status(), "stt_enabled": s.get("enabled", True),
+                "tts_voice": s.get("tts_voice", ""), "tts_rate": float(s.get("tts_rate", 1.05))}
 
     async def voice_get(request: Request):
         return JSONResponse(_voice_settings())
 
     async def voice_put(request: Request):
-        """{read_aloud?: off|voice|always, wake?: bool}: saved to config.yaml, shared by every chat window."""
+        """{read_aloud?: off|voice|always, wake?: bool, tts_voice?: str ('' = the best one), tts_rate?: 0.6..1.6}:
+        saved to config.yaml, shared by every chat window."""
         body = await _json(request)
         s = app.cfg.setdefault("stt", {})
         if "read_aloud" in body:
             if body["read_aloud"] not in ("off", "voice", "always"):
                 return JSONResponse({"detail": "read_aloud must be off, voice or always"}, status_code=400)
             s["read_aloud"] = body["read_aloud"]
+        if "tts_voice" in body:                # a Windows voice's name, as the page's speechSynthesis lists it
+            if not isinstance(body["tts_voice"], str) or len(body["tts_voice"]) > 200:
+                return JSONResponse({"detail": "tts_voice must be a voice name"}, status_code=400)
+            s["tts_voice"] = body["tts_voice"].strip()
+        if "tts_rate" in body:
+            try:
+                s["tts_rate"] = round(max(0.6, min(1.6, float(body["tts_rate"]))), 2)
+            except (TypeError, ValueError):
+                return JSONResponse({"detail": "tts_rate must be a number"}, status_code=400)
         if "wake" in body:
             if not isinstance(body["wake"], bool):
                 return JSONResponse({"detail": "wake must be true or false"}, status_code=400)

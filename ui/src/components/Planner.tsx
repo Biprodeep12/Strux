@@ -71,9 +71,10 @@ export function QuickAdd({ placeholder, autoFocus, compact }: { placeholder?: st
   );
 }
 
-export function TodoRow({ t, compact }: { t: Todo; compact?: boolean }) {
+export function TodoRow({ t, compact, onModal }: { t: Todo; compact?: boolean; onModal?: (open: boolean) => void }) {
   const toast = useToast();
-  const [open, setOpen] = useState(false);
+  const [open, setOpenRaw] = useState(false);
+  const setOpen = (o: boolean) => { setOpenRaw(o); onModal?.(o); };       // the pane grows to fit the editor
   const [busy, setBusy] = useState(false);
   const done = t.done_ts != null;
   const due = dueLabel(done ? null : t.due_ts);

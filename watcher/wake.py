@@ -4,7 +4,8 @@ then stays open. Everything runs on this PC and no audio is ever written anywher
   mic (16 kHz) -> Silero VAD (tiny, ~1% CPU) -> a burst of speech ended
      -> its first 3 s through whisper tiny.en: does it start with "hey Strux"?
         no  -> forget it
-        yes -> the rest of that burst is the message; if there is none, record until you stop talking
+        yes -> the same 3 s through the chat model with no prompt: does it hear the name too? (no -> forget it)
+            -> the rest of that burst is the message; if there is none, record until you stop talking
                (1.2 s of silence) -> whisper small -> on_command(text) -> the bar chat sends it
 
 The listener stands down while Strux is paused, the PC is locked, the mic button is recording, or a reply
@@ -30,6 +31,7 @@ FRAME = 512                                   # Silero's frame at 16 kHz (32 ms)
 NAME = r"(?:str[uoa](?:x|cks?|ks?|cts?|ts?|kes?)|str[iy]x)"
 _NAME_WORD = re.compile(NAME + r"$", re.I)
 GREET_RE = re.compile(r"^\W*(hey|hi|high|hay|hei|heya|hiya|hello|okay|ok|yo)[\s,.!]+([a-z']+)\b[\s,.!?]*", re.I)
+FUSED_RE = re.compile(r"^\W*(?:hey|hei|hay|hi|ok)-?" + NAME + r"\b[\s,.!?]*", re.I)   # large-v3-turbo: "Heistrux. Plan my day"
 PROMPT = "Hey Strux."                         # biases tiny.en to spell the name (SAPI clips: 30/30 "Strux", 0/24 look-alikes woke)
 
 
@@ -46,7 +48,7 @@ def is_name(word: str) -> bool:
 def find_wake(text: str) -> re.Match | None:
     """'Hey Strux, what's next' -> match whose end() is where the message starts."""
     m = GREET_RE.match(text or "")                        # the phrase has to open what was said
-    return m if m and is_name(m.group(2)) else None
+    return m if m and is_name(m.group(2)) else FUSED_RE.match(text or "")
 
 
 GREETING = {"hey", "hi", "high", "hay", "hello", "okay", "ok", "yo", "oh"}
@@ -59,6 +61,20 @@ def strip_greeting(text: str) -> str:
     while i < min(3, len(words)) and ((w := words[i].strip(" ,.!?").lower()) in GREETING or is_name(w)):
         i += 1
     return " ".join(words[i:])
+
+
+_NAME_SOUND = re.compile(r"str[uo]", re.I)
+
+
+def confirms_wake(text: str) -> bool:
+    """The double-check: did the UNPROMPTED chat model hear the name near the start? Without a prompt it often
+    garbles your greeting (real ones, 2026-10-24: "Restructs", "Aestrux", "A strokes.", "Very struck us.",
+    "Rrrrstruck!"), while other speech that the primed tiny.en turned into "Hey Strux." came out as itself
+    ("Very cool.", "Exactly.", "Thank you.", "How do you get this?", "")."""
+    if find_wake(text):
+        return True
+    words = [w.strip(" ,.!?'\"") for w in (text or "").split()[:3]]
+    return any(w and (is_name(w) or _NAME_SOUND.search(w)) for w in words)
 
 
 def command_after(text: str) -> str:
@@ -75,6 +91,9 @@ def message_after(text: str) -> str:
         if not m:
             break
         t = t[m.end():]
+    first, _, rest = t.strip().partition(" ")
+    if t == (text or "") and _NAME_SOUND.search(first) and first[:1].isupper():   # a garbled "Hey Strux": "Restructs, what's next"
+        t = rest
     return strip_greeting(t).strip(" ,.!?")
 
 
@@ -235,6 +254,11 @@ class WakeListener:
             log.info("wake debug: %.1fs heard %r -> %s", len(audio) / RATE, quick[:60], "WAKE" if find_wake(quick) else "no")
         if not find_wake(quick):
             return False
+        # tiny.en is primed with "Hey Strux." and on video / TV speech sometimes writes it anyway: before waking, the
+        # chat model (far more accurate) re-hears the burst WITHOUT any prompt and must hear the wake phrase too
+        if not self._confirm(head):
+            log.info("wake phrase not confirmed (likely other speech)")
+            return False
         self.woken += 1
         log.info("wake phrase heard")
         self._set("listening")
@@ -288,6 +312,17 @@ class WakeListener:
             if now - t0 > longest:
                 break
         return np.concatenate(got) if got else None
+
+    def _confirm(self, head: np.ndarray) -> bool:
+        try:
+            text = self.stt.transcribe(head, hints=False)["text"]
+        except Exception as e:
+            log.warning("wake double-check failed: %s", e)
+            return False
+        ok = confirms_wake(text)
+        if time.time() < self.debug_until:
+            log.info("wake debug: double-check heard %r -> %s", text[:60], "WAKE" if ok else "no")
+        return ok
 
     def _small(self, audio: np.ndarray) -> str:
         self._set("transcribing")
