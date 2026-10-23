@@ -184,6 +184,24 @@ class LLM:
         except Exception:
             return []
 
+    def resident_vram_mb(self) -> int:
+        """VRAM Ollama holds for OUR models right now (a chat keeps the model warm for chat_keep_alive): it is
+        already loaded, so it must not read as "someone else is using the GPU". Cached 5 s (status polls often)."""
+        now = time.time()
+        if now - getattr(self, "_res_at", 0.0) < 5:
+            return self._res_mb
+        mb = 0
+        if self.provider == "ollama":
+            ours = {self.model, self.cfg.get("vision_model") or ""}
+            try:
+                for m in _http("GET", f"{self.base}/api/ps", timeout=1).get("models", []):
+                    if m.get("name") in ours or m.get("model") in ours:
+                        mb += int(m.get("size_vram", 0)) // (1024 * 1024)
+            except Exception:
+                pass
+        self._res_at, self._res_mb = now, mb
+        return mb
+
     def chat_tools(self, messages: list[dict], tools: list[dict], max_tokens: int = 400, temperature: float = 0.1) -> dict | None:
         self._busy += 1
         try:

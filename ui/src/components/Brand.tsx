@@ -1,6 +1,6 @@
 import { motion } from "framer-motion";
 
-/** The Strux mark: a ring with one orbiting dot on a blue tile (same drawing as assets/make_icon.py). */
+/** The Strux mark: a geometric S ending in an orbiting dot, on a blue tile (same drawing as assets/make_icon.py). */
 export function StruxMark({ size = 32, glow = false }: { size?: number; glow?: boolean }) {
   return (
     <motion.div
@@ -10,9 +10,10 @@ export function StruxMark({ size = 32, glow = false }: { size?: number; glow?: b
       transition={glow ? { duration: 1.6, repeat: 1, ease: "easeOut", delay: 0.4 } : undefined}
     >
       <svg viewBox="0 0 32 32" width={size} height={size} aria-hidden>
-        {/* ring of r 8.16, broken around the dot at -50° (gap r 3.7) */}
-        <path d="M 23.46 12.69 A 8.16 8.16 0 1 1 17.97 8.08" fill="none" stroke="white" strokeWidth="2.8" strokeLinecap="butt" />
-        <circle cx="21.25" cy="9.75" r="2.3" fill="white" />
+        {/* a geometric S of two half-round turns (r 3.25); its top stroke ends in the dot (same as watcher/ui/brand.py) */}
+        <path d="M 17.1 9.5 H 11.85 A 3.25 3.25 0 0 0 11.85 16 H 18.35 A 3.25 3.25 0 0 1 18.35 22.5 H 9.1" fill="none" stroke="white"
+          strokeWidth="2.8" strokeLinecap="round" strokeLinejoin="round" />
+        <circle cx="22.1" cy="9.5" r="2.2" fill="white" />
       </svg>
     </motion.div>
   );

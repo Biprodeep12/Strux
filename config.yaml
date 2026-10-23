@@ -79,7 +79,6 @@ stt:
     silence_ms: 1200
     listen_timeout_s: 6
     max_command_s: 30
-    debug_minutes: 30
 user:
   name: ''
 prompts: {}

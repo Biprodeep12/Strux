@@ -94,7 +94,8 @@ class App:
             self.sensors.append(ProcessSensor(self.bus, s.get("process", {})))
 
         self.brain = Brain(self.cfg["brain"], self.store, self._notify, on_state=self._brain_state)
-        self.brain.gpu.own_mb = self.stt.vram_mb     # resident whisper ("Hey Strux" on) must not read as a busy GPU
+        # our own resident models (whisper while "Hey Strux" is on, the warm chat model) must not read as a busy GPU
+        self.brain.gpu.own_mb = lambda: self.stt.vram_mb() + self.brain.llm.resident_vram_mb()
         self.actions = Actions(self)
         self.brain.focusing = lambda: self.actions.focusing
         self.brain.planner = self.planner

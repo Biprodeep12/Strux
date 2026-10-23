@@ -242,6 +242,18 @@ class Ollama(unittest.TestCase):
         self.assertFalse(r["ok"])
         self.assertIn("isn't installed", r["error"])
 
+    def test_warm_chat_model_counts_as_ours(self):
+        from unittest import mock
+        from watcher.brain import llm as L
+        llm = L.LLM({"model": "qwen2.5:7b", "vision_model": "qwen2.5vl:3b"})
+        ps = {"models": [{"name": "qwen2.5:7b", "size_vram": 4200 << 20}, {"name": "someone-elses:13b", "size_vram": 900 << 20}]}
+        with mock.patch.object(L, "_http", return_value=ps):
+            self.assertEqual(llm.resident_vram_mb(), 4200)
+        with mock.patch.object(L, "_http", side_effect=OSError("down")):
+            self.assertEqual(llm.resident_vram_mb(), 4200)                # cached for 5 s
+            llm._res_at = 0
+            self.assertEqual(llm.resident_vram_mb(), 0)
+
     def test_own_whisper_vram_is_not_a_busy_gpu(self):
         from watcher.brain.llm import GpuGuard, system_busy
         g = GpuGuard.__new__(GpuGuard)

@@ -240,6 +240,18 @@ pane window gets hidden behind its back.
 4. Brain: summarizer, 5 rules, LLM client with guards, scheduler, retention tiers + disk cap.
 5. Tray + toasts + CLI. 16 unit tests. 25 s live smoke run.
 
+### 2026-10-23 (real-voice "Hey Strux", Strux mark, own-VRAM guard, GPU speech in the exe)
+- Live: 35 real bursts, 0 wakes. tiny.en now gets `initial_prompt="Hey Strux."` (SAPI: 30/30 spelled "Strux", 0/24 look-alike
+  sentences and no noise woke) + `wake.is_name` fuzzy match ("Starks", "Stucks"; not "stocks", "strong"). Opt-in
+  `stt.wake.debug_minutes` logs what the wake check heard, then switches itself off; confirmed on the user's voice
+  ("Hey Strux." -> WAKE -> "what's up" answered), debug lines purged after.
+- Background LLM skipped "vram free 1.5 GB" while a chat kept qwen warm: `LLM.resident_vram_mb()` (Ollama /api/ps, our
+  models only, cached 5 s) now counts as Strux's own VRAM, like resident whisper.
+- New mark (watcher/ui/brand.py + Brand.tsx, assets regenerated): geometric white S of two half-round turns whose top
+  stroke ends in the old orbiting dot, same blue squircle.
+- Packaged exe bundles cublas64_12 + cublasLt64_12 (the only CUDA DLLs a large-v3-turbo transcription loads; cuDNN /
+  NVRTC unused): dist/Strux 1.1 GB, GPU speech verified from the bundle alone.
+
 ### 2026-10-23 (renamed Halo -> Strux; wake phrase "Hey Strux")
 - Every user-facing name, prompt ("You are Strux"), window title ("Strux bar" / "Strux pane"), asset (assets/strux.ico),
   logon task (`Strux`; install-autostart.ps1 removes the old `Halo` task + shortcuts) and packaged exe name (Strux.exe).
